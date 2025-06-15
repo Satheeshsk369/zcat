@@ -1,179 +1,88 @@
 const std = @import("std");
 
-/// Represents an object in a category
-pub const Object = struct {
-    name: []const u8,
-
-    const Self = @This();
-
-    pub fn init(comptime name: []const u8) Self {
-        return Self{ .name = name };
+pub fn Compose(comptime funcs: anytype) type {
+    const funcs_info = @typeInfo(@TypeOf(funcs));
+    if (funcs_info != .@"struct") {
+        @compileError("Expected tuple of functions");
     }
 
-    pub fn eql(self: Self, other: Self) bool {
-        return std.mem.eql(u8, self.name, other.name);
+    const fields = funcs_info.@"struct".fields;
+    if (fields.len == 0) {
+        @compileError("Need at least one function");
     }
 
-    pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = fmt;
-        _ = options;
-        try writer.print("Obj({s})", .{self.name});
-    }
-};
-
-/// Represents a morphism between two objects in a category
-pub const Morphism = struct {
-    name: []const u8,
-    source: Object,
-    target: Object,
-
-    const Self = @This();
-
-    pub fn init(comptime name: []const u8, source: Object, target: Object) Self {
-        return Self{
-            .name = name,
-            .source = source,
-            .target = target,
-        };
-    }
-
-    /// Check if two morphisms can be composed (g ∘ f)
-    pub fn canCompose(f: Self, g: Self) bool {
-        return f.target.eql(g.source);
-    }
-
-    /// Create identity morphism for an object
-    pub fn identity(comptime obj: Object) Self {
-        return Self.init("id_" ++ obj.name, obj, obj);
-    }
-
-    /// Compose two morphisms at compile time
-    pub fn compose(comptime f: Self, comptime g: Self) Self {
-        if (!comptime f.canCompose(g)) {
-            @compileError("Cannot compose morphisms: target of f must equal source of g");
-        }
-        return Self.init(g.name ++ "∘" ++ f.name, f.source, g.target);
-    }
-
-    pub fn format(self: Self, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = fmt;
-        _ = options;
-        try writer.print("{s}: {} → {}", .{ self.name, self.source, self.target });
-    }
-};
-
-/// Compile-time category builder
-pub fn Category(comptime name: []const u8, comptime objects: []const Object, comptime morphisms: []const Morphism) type {
-    // Validate at compile time that all morphisms reference existing objects
-    comptime {
-        for (morphisms) |morph| {
-            var source_found = false;
-            var target_found = false;
-
-            for (objects) |obj| {
-                if (obj.eql(morph.source)) source_found = true;
-                if (obj.eql(morph.target)) target_found = true;
-            }
-
-            if (!source_found) {
-                @compileError("Morphism '" ++ morph.name ++ "' references non-existent source object");
-            }
-            if (!target_found) {
-                @compileError("Morphism '" ++ morph.name ++ "' references non-existent target object");
-            }
+    // Validate all items are functions
+    inline for (fields) |field| {
+        const field_type = @typeInfo(field.type);
+        if (field_type != .@"fn") {
+            @compileError("All items must be functions");
         }
     }
 
-    return struct {
-        pub const category_name = name;
-        pub const category_objects = objects;
-        pub const category_morphisms = morphisms;
+    // Get first function's parameter type and last function's return type
+    const first_func_info = @typeInfo(@TypeOf(@field(funcs, fields[0].name))).@"fn";
+    const last_func_info = @typeInfo(@TypeOf(@field(funcs, fields[fields.len - 1].name))).@"fn";
 
-        /// Find object by name at compile time
-        pub fn findObject(comptime obj_name: []const u8) ?Object {
-            comptime {
-                for (objects) |obj| {
-                    if (std.mem.eql(u8, obj.name, obj_name)) {
-                        return obj;
-                    }
-                }
-                return null;
-            }
-        }
+    const InputType = first_func_info.params[0].type.?;
+    const OutputType = last_func_info.return_type.?;
 
-        /// Find morphism by name at compile time
-        pub fn findMorphism(comptime morph_name: []const u8) ?Morphism {
-            comptime {
-                for (morphisms) |morph| {
-                    if (std.mem.eql(u8, morph.name, morph_name)) {
-                        return morph;
-                    }
-                }
-                return null;
-            }
-        }
-
-        /// Get all morphisms from source to target
-        pub fn getMorphisms(comptime source: Object, comptime target: Object) []const Morphism {
-            comptime {
-                var result: []const Morphism = &[_]Morphism{};
-                for (morphisms) |morph| {
-                    if (morph.source.eql(source) and morph.target.eql(target)) {
-                        result = result ++ [_]Morphism{morph};
-                    }
-                }
-                return result;
-            }
-        }
-
-        /// Check if category laws are satisfied (compile-time verification)
-        pub fn verify() void {
-            comptime {
-                // Check that identity morphisms exist for all objects
-                for (objects) |obj| {
-                    var id_found = false;
-                    for (morphisms) |morph| {
-                        if (morph.source.eql(obj) and morph.target.eql(obj) and
-                            (std.mem.eql(u8, morph.name, "id_" ++ obj.name) or
-                                std.mem.startsWith(u8, morph.name, "id")))
-                        {
-                            id_found = true;
-                            break;
-                        }
-                    }
-                    if (!id_found) {
-                        @compileError("Missing identity morphism for object: " ++ obj.name);
-                    }
-                }
-            }
-        }
-
-        pub fn print() void {
-            std.debug.print("Category: {s}\n", .{category_name});
-            std.debug.print("Objects:\n");
-            inline for (category_objects) |obj| {
-                std.debug.print("  {}\n", .{obj});
-            }
-            std.debug.print("Morphisms:\n");
-            inline for (category_morphisms) |morph| {
-                std.debug.print("  {}\n", .{morph});
-            }
-        }
-    };
+    return fn (InputType) OutputType;
 }
 
-/// Helper function to create categories with automatic identity morphisms
-pub fn CategoryWithIdentities(comptime name: []const u8, comptime objects: []const Object, comptime extra_morphisms: []const Morphism) type {
-    comptime {
-        // Generate identity morphisms for all objects
-        var identities: [objects.len]Morphism = undefined;
-        for (objects, 0..) |obj, i| {
-            identities[i] = Morphism.identity(obj);
+pub fn compose(comptime funcs: anytype) Compose(funcs) {
+    const fields = @typeInfo(@TypeOf(funcs)).@"struct".fields;
+
+    if (fields.len == 1) {
+        return @field(funcs, fields[0].name);
+    }
+
+    return composeImpl(funcs);
+}
+
+fn composeImpl(comptime funcs: anytype) Compose(funcs) {
+    const fields = @typeInfo(@TypeOf(funcs)).@"struct".fields;
+    const first_func_info = @typeInfo(@TypeOf(@field(funcs, fields[0].name))).@"fn";
+    const InputType = first_func_info.params[0].type.?;
+
+    return struct {
+        fn call(input: InputType) callReturnType() {
+            return composeChain(funcs, input, 0);
         }
 
-        // Combine identities with extra morphisms
-        const all_morphisms = identities ++ extra_morphisms;
+        fn callReturnType() type {
+            const last_func_info = @typeInfo(@TypeOf(@field(funcs, fields[fields.len - 1].name))).@"fn";
+            return last_func_info.return_type.?;
+        }
 
-        return Category(name, objects, all_morphisms);
-    }
+        fn composeChain(comptime fs: @TypeOf(funcs), value: anytype, comptime index: usize) callReturnType() {
+            const current_func = @field(fs, fields[index].name);
+            const result = current_func(value);
+
+            if (index == fields.len - 1) {
+                return result;
+            } else {
+                return composeChain(fs, result, index + 1);
+            }
+        }
+    }.call;
+}
+
+// Example usage:
+test "function composition" {
+    const add_one = struct {
+        fn f(x: i32) i32 {
+            return x + 1;
+        }
+    }.f;
+
+    const double = struct {
+        fn f(x: i32) i32 {
+            return x * 2;
+        }
+    }.f;
+
+    const composed = compose(.{ add_one, double });
+    const result = composed(2); // (2 + 1) * 2 = 6
+
+    try std.testing.expectEqual(@as(i32, 6), result);
 }
