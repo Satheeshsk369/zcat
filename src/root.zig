@@ -1,88 +1,62 @@
 const std = @import("std");
 
-pub fn Compose(comptime funcs: anytype) type {
-    const funcs_info = @typeInfo(@TypeOf(funcs));
-    if (funcs_info != .@"struct") {
-        @compileError("Expected tuple of functions");
-    }
+// Re-export all categorical implementations
+pub const object = @import("object.zig");
+pub const morphism = @import("morphism.zig");
+pub const functor = @import("functor.zig");
+pub const products = @import("products.zig");
 
-    const fields = funcs_info.@"struct".fields;
-    if (fields.len == 0) {
-        @compileError("Need at least one function");
-    }
+/// Example usage of the categorical library
+pub fn example() void {
+    // Object example
+    const IntObject = object.CategoricalObject(i32);
+    const obj = IntObject.new(42);
+    const identity_obj = obj.identity();
+    std.debug.print("Object identity: {}\n", .{identity_obj.value});
 
-    // Validate all items are functions
-    inline for (fields) |field| {
-        const field_type = @typeInfo(field.type);
-        if (field_type != .@"fn") {
-            @compileError("All items must be functions");
-        }
-    }
-
-    // Get first function's parameter type and last function's return type
-    const first_func_info = @typeInfo(@TypeOf(@field(funcs, fields[0].name))).@"fn";
-    const last_func_info = @typeInfo(@TypeOf(@field(funcs, fields[fields.len - 1].name))).@"fn";
-
-    const InputType = first_func_info.params[0].type.?;
-    const OutputType = last_func_info.return_type.?;
-
-    return fn (InputType) OutputType;
-}
-
-pub fn compose(comptime funcs: anytype) Compose(funcs) {
-    const fields = @typeInfo(@TypeOf(funcs)).@"struct".fields;
-
-    if (fields.len == 1) {
-        return @field(funcs, fields[0].name);
-    }
-
-    return composeImpl(funcs);
-}
-
-fn composeImpl(comptime funcs: anytype) Compose(funcs) {
-    const fields = @typeInfo(@TypeOf(funcs)).@"struct".fields;
-    const first_func_info = @typeInfo(@TypeOf(@field(funcs, fields[0].name))).@"fn";
-    const InputType = first_func_info.params[0].type.?;
-
-    return struct {
-        fn call(input: InputType) callReturnType() {
-            return composeChain(funcs, input, 0);
-        }
-
-        fn callReturnType() type {
-            const last_func_info = @typeInfo(@TypeOf(@field(funcs, fields[fields.len - 1].name))).@"fn";
-            return last_func_info.return_type.?;
-        }
-
-        fn composeChain(comptime fs: @TypeOf(funcs), value: anytype, comptime index: usize) callReturnType() {
-            const current_func = @field(fs, fields[index].name);
-            const result = current_func(value);
-
-            if (index == fields.len - 1) {
-                return result;
-            } else {
-                return composeChain(fs, result, index + 1);
-            }
-        }
-    }.call;
-}
-
-// Example usage:
-test "function composition" {
-    const add_one = struct {
+    // Morphism example
+    const add_one = morphism.Morphism(i32, i32).new(struct {
         fn f(x: i32) i32 {
             return x + 1;
         }
-    }.f;
+    }.f);
 
-    const double = struct {
+    const double = morphism.Morphism(i32, i32).new(struct {
         fn f(x: i32) i32 {
             return x * 2;
         }
-    }.f;
+    }.f);
 
-    const composed = compose(.{ add_one, double });
-    const result = composed(2); // (2 + 1) * 2 = 6
+    const composed = add_one.compose(double);
+    std.debug.print("Morphism composition: {}\n", .{composed.apply(2)});
 
-    try std.testing.expectEqual(@as(i32, 6), result);
+    // Functor example
+    const maybe = functor.Maybe(i32).some(42);
+    const mapped = maybe.map(add_one);
+    std.debug.print("Functor mapping: {}\n", .{mapped.value.Some});
+
+    // Product example
+    const Point = products.Product(struct {
+        x: f32,
+        y: f32,
+    });
+
+    const point = Point.new(.{ .x = 1.0, .y = 2.0 });
+    const proj_x = Point.project(0);
+    std.debug.print("Product projection: {}\n", .{proj_x.apply(point)});
+
+    // Coproduct example
+    const Result = products.Coproduct(struct {
+        Ok: i32,
+        Err: []const u8,
+    });
+
+    const ok = Result.inject(i32, "Ok").apply(42);
+    std.debug.print("Coproduct injection: {}\n", .{ok.value.Ok});
+}
+
+// Example usage:
+test "categorical library" {
+    // Run the example
+    example();
 }

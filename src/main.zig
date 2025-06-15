@@ -1,54 +1,76 @@
 const std = @import("std");
 const C = @import("zcat");
 
-fn add_ten(x: i32) i32 {
-    return x + 10;
-}
-
-fn multiply_by_three(x: i32) i32 {
-    return x * 3;
-}
-
-fn to_f32(x: i32) f32 {
-    return @floatFromInt(x);
-}
-
-fn square_root(x: f32) f32 {
-    return @sqrt(x);
-}
-
 pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
+    std.debug.print("Category Theory in Zig\n", .{});
+    std.debug.print("====================\n\n", .{});
 
-    // Test 1: Simple composition
-    const comp1 = C.compose(.{ add_ten, multiply_by_three });
-    const result1 = comp1(5); // (5 + 10) * 3 = 45
-    try stdout.print("Test 1: compose(add_ten, multiply_by_three)(5) = {}\n", .{result1});
+    // Demonstrate Objects
+    std.debug.print("Objects:\n", .{});
+    std.debug.print("--------\n", .{});
+    const IntObject = C.object.CategoricalObject(i32);
+    const obj = IntObject.new(42);
+    const identity_obj = obj.identity();
+    std.debug.print("Object value: {}\n", .{obj.value});
+    std.debug.print("Identity morphism: {}\n\n", .{identity_obj.value});
 
-    // Test 2: Single function
-    const comp2 = C.compose(.{add_ten});
-    const result2 = comp2(7); // 7 + 10 = 17
-    try stdout.print("Test 2: compose(add_ten)(7) = {}\n", .{result2});
-
-    // Test 3: Type changing composition
-    const comp3 = C.compose(.{ add_ten, multiply_by_three, to_f32, square_root });
-    const result3 = comp3(2); // (2 + 10) * 3 = 36 -> 36.0 -> 6.0
-    try stdout.print("Test 3: complex composition(2) = {d:.1}\n", .{result3});
-
-    // Test 4: Lambda-style functions
-    const double = struct {
-        fn f(x: i32) i32 {
-            return x * 2;
-        }
-    }.f;
-
-    const add_one = struct {
+    // Demonstrate Morphisms
+    std.debug.print("Morphisms:\n", .{});
+    std.debug.print("----------\n", .{});
+    const add_one = C.morphism.Morphism(i32, i32).new(struct {
         fn f(x: i32) i32 {
             return x + 1;
         }
-    }.f;
+    }.f);
 
-    const comp4 = C.compose(.{ double, add_one });
-    const result4 = comp4(10); // 10 * 2 + 1 = 21
-    try stdout.print("Test 4: compose(double, add_one)(10) = {}\n", .{result4});
+    const double = C.morphism.Morphism(i32, i32).new(struct {
+        fn f(x: i32) i32 {
+            return x * 2;
+        }
+    }.f);
+
+    const composed = add_one.compose(double);
+    std.debug.print("f(x) = x + 1\n", .{});
+    std.debug.print("g(x) = x * 2\n", .{});
+    std.debug.print("(g ∘ f)(2) = {}\n\n", .{composed.apply(2)});
+
+    // Demonstrate Functors
+    std.debug.print("Functors:\n", .{});
+    std.debug.print("---------\n", .{});
+    const maybe = C.functor.Maybe(i32).some(42);
+    const mapped = maybe.map(add_one);
+    std.debug.print("Maybe(42) -> Maybe(43)\n", .{});
+    std.debug.print("fmap(add_one)(Some(42)) = Some({})\n\n", .{mapped.value.Some});
+
+    // Demonstrate Products
+    std.debug.print("Products:\n", .{});
+    std.debug.print("---------\n", .{});
+    const Point = C.products.Product(struct {
+        x: f32,
+        y: f32,
+    });
+
+    const point = Point.new(.{ .x = 1.0, .y = 2.0 });
+    const proj_x = Point.project(0);
+    const proj_y = Point.project(1);
+    std.debug.print("Point(1.0, 2.0)\n", .{});
+    std.debug.print("π₁(point) = {}\n", .{proj_x.apply(point)});
+    std.debug.print("π₂(point) = {}\n\n", .{proj_y.apply(point)});
+
+    // Demonstrate Coproducts
+    std.debug.print("Coproducts:\n", .{});
+    std.debug.print("------------\n", .{});
+    const Result = C.products.Coproduct(struct {
+        Ok: i32,
+        Err: []const u8,
+    });
+
+    const ok = Result.inject(i32, "Ok").apply(42);
+    const err = Result.inject([]const u8, "Err").apply("error");
+    std.debug.print("in₁(42) = {}\n", .{ok.value.Ok});
+    std.debug.print("in₂(\"error\") = {s}\n", .{err.value.Err});
+}
+
+test "main" {
+    try main();
 }
