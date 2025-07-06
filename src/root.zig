@@ -1,7 +1,14 @@
 const std = @import("std");
-const basics = @import("category/basics.zig");
+const base = @import("category/base.zig");
+const functors = @import("category/functors.zig");
 
-// Category Theory Basics - Pure Mathematical API
-pub const Object = basics.Object;
-pub const Morphism = basics.Morphism;
-pub const Identity = basics.Identity;
+// Category Theory Base - Pure Mathematical API
+pub const Object = base.Object;
+pub const Morphism = base.Morphism;
+pub const Identity = base.Identity;
+
+// Functors - Mappings between categories
+pub const Functor = functors.Functor;
+pub const IdentityFunctor = functors.IdentityFunctor;
+pub const FunctorComposition = functors.FunctorComposition;
+pub const ConstantFunctor = functors.ConstantFunctor;
