@@ -1,76 +1,129 @@
 const std = @import("std");
-const C = @import("zcat");
+const zcat = @import("root.zig");
 
 pub fn main() !void {
-    std.debug.print("Category Theory in Zig\n", .{});
-    std.debug.print("====================\n\n", .{});
-
-    // Demonstrate Objects
-    std.debug.print("Objects:\n", .{});
-    std.debug.print("--------\n", .{});
-    const IntObject = C.object.CategoricalObject(i32);
-    const obj = IntObject.new(42);
-    const identity_obj = obj.identity();
-    std.debug.print("Object value: {}\n", .{obj.value});
-    std.debug.print("Identity morphism: {}\n\n", .{identity_obj.value});
-
-    // Demonstrate Morphisms
-    std.debug.print("Morphisms:\n", .{});
-    std.debug.print("----------\n", .{});
-    const add_one = C.morphism.Morphism(i32, i32).new(struct {
-        fn f(x: i32) i32 {
-            return x + 1;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    
+    std.debug.print("=== Category Theory Basics Demo ===\n", .{});
+    
+    // Define some objects (types)
+    const IntObj = i32;
+    const StringObj = []const u8;
+    
+    std.debug.print("Objects: {s} and {s}\n", .{ @typeName(IntObj), @typeName(StringObj) });
+    
+    // === COMPILE-TIME COMPOSITION DEMO ===
+    std.debug.print("\n--- Compile-time Composition ---\n", .{});
+    
+    // Create a morphism from i32 to []const u8
+    const intToString = zcat.Morphism(IntObj, StringObj){
+        .f = struct {
+            fn convert(x: i32) []const u8 {
+                return if (x > 0) "positive" else if (x < 0) "negative" else "zero";
+            }
+        }.convert,
+    };
+    
+    // Create identity morphism for i32
+    const id_int = zcat.Identity(IntObj);
+    
+    // Demonstrate morphism application
+    const test_value: i32 = 42;
+    const result = intToString.apply(test_value);
+    const identity_result = id_int.apply(test_value);
+    
+    std.debug.print("Morphism f(42) = {s}\n", .{result});
+    std.debug.print("Identity id(42) = {d}\n", .{identity_result});
+    
+    // Demonstrate composition with another morphism
+    const doubleInt = zcat.Morphism(IntObj, IntObj){
+        .f = struct {
+            fn double(x: i32) i32 {
+                return x * 2;
+            }
+        }.double,
+    };
+    
+    const composed = zcat.Compose(IntObj, IntObj, StringObj, doubleInt, intToString);
+    const composed_result = composed.apply(21);
+    
+    std.debug.print("Composition (double then toString)(21) = {s}\n", .{composed_result});
+    
+    // === RUNTIME COMPOSITION DEMO ===
+    std.debug.print("\n--- Runtime Composition ---\n", .{});
+    
+    // Convert compile-time morphisms to runtime morphisms
+    const runtime_double = try zcat.toRuntimeMorphism(i32, i32, doubleInt, allocator);
+    defer runtime_double.deinit(allocator);
+    
+    const add_ten = zcat.Morphism(i32, i32){
+        .f = struct {
+            fn add(x: i32) i32 {
+                return x + 10;
+            }
+        }.add,
+    };
+    
+    const runtime_add_ten = try zcat.toRuntimeMorphism(i32, i32, add_ten, allocator);
+    defer runtime_add_ten.deinit(allocator);
+    
+    // Runtime composition
+    const runtime_composed = try runtime_double.compose(allocator, runtime_add_ten);
+    defer runtime_composed.deinit(allocator);
+    
+    const runtime_result = runtime_composed.apply(@as(i32, 5));
+    std.debug.print("Runtime composition (double then add10)(5) = {d}\n", .{runtime_result});
+    
+    // === DYNAMIC PIPELINE DEMO ===
+    std.debug.print("\n--- Dynamic Pipeline ---\n", .{});
+    
+    // Simulate dynamic configuration
+    const Config = struct {
+        should_double: bool,
+        should_add_ten: bool,
+        should_subtract_five: bool,
+    };
+    
+    const configs = [_]Config{
+        Config{ .should_double = true, .should_add_ten = false, .should_subtract_five = true },
+        Config{ .should_double = false, .should_add_ten = true, .should_subtract_five = false },
+        Config{ .should_double = true, .should_add_ten = true, .should_subtract_five = true },
+    };
+    
+    const subtract_five = zcat.Morphism(i32, i32){
+        .f = struct {
+            fn subtract(x: i32) i32 {
+                return x - 5;
+            }
+        }.subtract,
+    };
+    
+    for (configs, 0..) |config, i| {
+        std.debug.print("Configuration {d}: ", .{i + 1});
+        
+        var pipeline = zcat.RuntimePipeline.init(allocator);
+        defer pipeline.deinit();
+        
+        if (config.should_double) {
+            try pipeline.addStep(try zcat.toRuntimeMorphism(i32, i32, doubleInt, allocator));
+            std.debug.print("double ");
         }
-    }.f);
-
-    const double = C.morphism.Morphism(i32, i32).new(struct {
-        fn f(x: i32) i32 {
-            return x * 2;
+        
+        if (config.should_add_ten) {
+            try pipeline.addStep(try zcat.toRuntimeMorphism(i32, i32, add_ten, allocator));
+            std.debug.print("add10 ");
         }
-    }.f);
-
-    const composed = add_one.compose(double);
-    std.debug.print("f(x) = x + 1\n", .{});
-    std.debug.print("g(x) = x * 2\n", .{});
-    std.debug.print("(g ∘ f)(2) = {}\n\n", .{composed.apply(2)});
-
-    // Demonstrate Functors
-    std.debug.print("Functors:\n", .{});
-    std.debug.print("---------\n", .{});
-    const maybe = C.functor.Maybe(i32).some(42);
-    const mapped = maybe.map(add_one);
-    std.debug.print("Maybe(42) -> Maybe(43)\n", .{});
-    std.debug.print("fmap(add_one)(Some(42)) = Some({})\n\n", .{mapped.value.Some});
-
-    // Demonstrate Products
-    std.debug.print("Products:\n", .{});
-    std.debug.print("---------\n", .{});
-    const Point = C.products.Product(struct {
-        x: f32,
-        y: f32,
-    });
-
-    const point = Point.new(.{ .x = 1.0, .y = 2.0 });
-    const proj_x = Point.project(0);
-    const proj_y = Point.project(1);
-    std.debug.print("Point(1.0, 2.0)\n", .{});
-    std.debug.print("π₁(point) = {}\n", .{proj_x.apply(point)});
-    std.debug.print("π₂(point) = {}\n\n", .{proj_y.apply(point)});
-
-    // Demonstrate Coproducts
-    std.debug.print("Coproducts:\n", .{});
-    std.debug.print("------------\n", .{});
-    const Result = C.products.Coproduct(struct {
-        Ok: i32,
-        Err: []const u8,
-    });
-
-    const ok = Result.inject(i32, "Ok").apply(42);
-    const err = Result.inject([]const u8, "Err").apply("error");
-    std.debug.print("in₁(42) = {}\n", .{ok.value.Ok});
-    std.debug.print("in₂(\"error\") = {s}\n", .{err.value.Err});
-}
-
-test "main" {
-    try main();
+        
+        if (config.should_subtract_five) {
+            try pipeline.addStep(try zcat.toRuntimeMorphism(i32, i32, subtract_five, allocator));
+            std.debug.print("subtract5 ");
+        }
+        
+        const pipeline_result = pipeline.execute(@as(i32, 8));
+        std.debug.print("-> f(8) = {d}\n", .{pipeline_result});
+    }
+    
+    std.debug.print("\n=== Demo Complete ===\n", .{});
 }
