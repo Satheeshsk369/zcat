@@ -9,42 +9,63 @@ We use Zig's `type` directly as our Object representation:
 ```zig
 pub const Object = type;
 ```
-Re-export core category theory concepts with PascalCase naming
+
 **Why this approach?**
 - Leverages Zig's compile-time type system naturally
 - Avoids concrete limitations (like u32 IDs)
 - Makes the implementation truly abstract
 - Enables direct use of any Zig type as a category object
 
-### Generic Morphisms
-Morphisms are implemented as generic functions that take source and target Object types:
+### Unified Morphism System
+Morphisms are implemented as a unified type that supports both compile-time and runtime contexts:
 ```zig
-pub fn Morphism(comptime source: Object, comptime target: Object) type
+pub fn Morphism(comptime Source: Object, comptime Target: Object) type
 ```
 
-**Why this approach?**
-- Type-safe: prevents composition of incompatible morphisms
-- Compile-time checked: morphism validity verified at compile time
-- Flexible: works with any function signature matching source → target
-- Mathematical: directly represents the mathematical concept
+**Key features:**
+- **Vtable-based dispatch**: Enables runtime polymorphism when needed
+- **Zero-cost abstraction**: Compile-time morphisms have no runtime overhead
+- **Type-safe composition**: Prevents composition of incompatible morphisms
+- **Mathematical purity**: Directly represents the mathematical concept f: A → B
+
+### Morphism Creation Methods
+Two methods for creating morphisms:
+
+1. **`new()`** - Creates compile-time morphisms from functions:
+```zig
+const f = Morphism(i32, []const u8).new(struct {
+    fn convert(x: i32) []const u8 {
+        return if (x > 0) "positive" else "negative";
+    }
+}.convert);
+```
+
+2. **`arrow()`** - Creates runtime morphisms with context:
+```zig
+const Context = struct {
+    pub fn apply(self: @This(), x: i32) i32 {
+        return x * 2;
+    }
+};
+const f = try Morphism(i32, i32).arrow(Context{}, allocator);
+```
+
+**Why "arrow"?**
+- Morphisms are arrows in category theory
+- Emphasizes the mathematical nature of the operation
+- Distinguishes runtime context-based creation from compile-time function creation
 
 ### Identity and Composition
-Core category laws are implemented as standalone functions:
-- `Identity(T)` - creates identity morphism for type T using inline struct pattern
-- `Compose(A, B, C, f, g)` - composes morphisms f: A→B and g: B→C using inline struct pattern
+Core category operations:
 
-**Why standalone functions?**
-- Clear mathematical semantics
-- Easy to understand and use
-- Follows functional programming principles
-- Enables method chaining and composition patterns
+1. **Identity**: `Identity(T)` creates identity morphism for type T
+2. **Composition**: `morphism.compose(Codomain, other, allocator)` composes morphisms
 
-**Important: Comptime-Only Composition**
-The `Compose` function requires all morphism parameters to be `comptime` due to Zig's closure limitations:
-- Inner functions cannot capture variables from outer scopes at runtime
-- By making parameters `comptime`, they become available at compile-time
-- This provides zero runtime overhead as composition is resolved at compile-time
-- Morphisms being composed must be known at compile-time
+**Composition semantics:**
+- Given `f: A → B` and `g: B → C`, `f.compose(C, g, allocator)` creates `g ∘ f: A → C`
+- Supports both compile-time and runtime morphisms
+- Uses vtable dispatch for runtime composition
+- Memory management via allocator for runtime compositions
 
 ## Category Laws Satisfied
 
@@ -53,8 +74,9 @@ The `Compose` function requires all morphism parameters to be `comptime` due to 
 
 These laws are enforced by the type system and implementation structure.
 
-## Usage Pattern
+## Usage Patterns
 
+### Compile-time Morphisms
 ```zig
 const zcat = @import("zcat");
 
@@ -62,10 +84,40 @@ const zcat = @import("zcat");
 const A = i32;
 const B = []const u8;
 
-// Create morphisms
-const f = zcat.Morphism(A, B){ .f = myFunction };
+// Create compile-time morphisms
+const f = zcat.Morphism(A, B).new(myFunction);
 const id_A = zcat.Identity(A);
 
-// Compose morphisms
-const composed = zcat.Compose(A, B, C, f, g);
+// Manual composition (zero-cost)
+const composed = zcat.Morphism(A, B).new(struct {
+    fn call(x: A) B {
+        return g.apply(f.apply(x));
+    }
+}.call);
 ```
+
+### Runtime Morphisms
+```zig
+// Create runtime morphisms with context
+const Context = struct {
+    multiplier: i32,
+    pub fn apply(self: @This(), x: i32) i32 {
+        return x * self.multiplier;
+    }
+};
+
+const f = try zcat.Morphism(i32, i32).arrow(Context{ .multiplier = 2 }, allocator);
+defer f.deinit(allocator);
+
+// Runtime composition
+const composed = try f.compose(i32, g, allocator);
+defer composed.deinit(allocator);
+```
+
+## Architecture Benefits
+
+1. **Unified API**: Single morphism type handles both compile-time and runtime cases
+2. **Performance**: Zero overhead for compile-time morphisms, efficient vtable dispatch for runtime
+3. **Mathematical**: Clean representation of category theory concepts
+4. **Flexible**: Supports both pure functions and stateful contexts
+5. **Type-safe**: Zig's type system prevents invalid morphism compositions

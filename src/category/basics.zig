@@ -44,7 +44,7 @@ pub fn Morphism(
         }
 
         /// Create a runtime morphism with context
-        pub fn fromContext(context: anytype, allocator: std.mem.Allocator) !Self {
+        pub fn arrow(context: anytype, allocator: std.mem.Allocator) !Self {
             const ContextType = @TypeOf(context);
             const impl = try allocator.create(ContextType);
             impl.* = context;
@@ -100,7 +100,7 @@ pub fn Morphism(
                 .second = other,
             };
 
-            return ResultType.fromContext(composition, allocator);
+            return ResultType.arrow(composition, allocator);
         }
     };
 }
@@ -275,10 +275,10 @@ test "Runtime morphism composition" {
         }
     };
 
-    const double = try Morphism(i32, i32).fromContext(DoubleContext{}, allocator);
+    const double = try Morphism(i32, i32).arrow(DoubleContext{}, allocator);
     defer double.deinit(allocator);
 
-    const add_one = try Morphism(i32, i32).fromContext(AddOneContext{}, allocator);
+    const add_one = try Morphism(i32, i32).arrow(AddOneContext{}, allocator);
     defer add_one.deinit(allocator);
 
     const composed = try double.compose(i32, add_one, allocator);
